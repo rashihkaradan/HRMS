@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: hrms
+      POSTGRES_PASSWORD: hrms
+      POSTGRES_DB: hrms
+    ports:
+      - "5433:5432"
+    volumes:
+      - hrms_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hrms"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    restart: always
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - ./app:/app/app
+      - hrms_chroma:/app/chroma_data
+      - ./documents:/app/documents
+
+  frontend:
+    build: ../hrms-frontend
+    restart: always
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5174:5174"
+
+volumes:
+  hrms_pgdata:
+  hrms_chroma:

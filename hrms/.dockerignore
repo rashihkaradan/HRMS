@@ -1,0 +1,17 @@
+# Local environments and generated runtime data
+venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+chroma_data/
+
+# Secrets and development metadata
+.env
+.git/
+.gitignore
+.dockerignore
+
+# Non-runtime project files
+README.md
+documents/
+*.log
