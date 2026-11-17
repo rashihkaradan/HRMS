@@ -9,6 +9,7 @@ import time
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Form
 from jose import JWTError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,7 +17,7 @@ from app.core.deps import require_roles, get_current_user
 from app.db.session import get_db, SessionLocal
 from app.core.security import create_access_token, decode_access_token
 from app.models.user import User, RoleEnum
-from app.models.recruitment import JobOpening, Candidate, Application
+from app.models.recruitment import JobOpening, Candidate, Application, ApplicationStatusHistory, InterviewSchedule
 from app.schemas.recruitment import (
     JobOpeningCreate,
     JobOpeningOut,
@@ -32,6 +33,8 @@ from app.schemas.recruitment import (
     PublicAssessmentSubmit,
     PublicInterviewToken,
     PublicInterviewAnswer,
+    InterviewScheduleCreate,
+    InterviewScheduleUpdate,
 )
 from app.rag.gemini_client import GeminiConfigurationError, GeminiServiceError, generate_text
 from app.rag.candidate_profiles import sync_open_job_profiles
@@ -237,7 +240,10 @@ async def get_assessment(
 @router.get("/careers/jobs", response_model=list[JobOpeningOut])
 async def list_public_jobs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(JobOpening).where(JobOpening.status == "OPEN").order_by(JobOpening.created_at.desc())
+        select(JobOpening).where(
+            JobOpening.status == "OPEN",
+            (JobOpening.application_deadline.is_(None) | (JobOpening.application_deadline >= func.current_date())),
+        ).order_by(JobOpening.created_at.desc())
     )
     jobs = result.scalars().all()
     for job in jobs:
@@ -313,7 +319,14 @@ async def create_public_application(
 
     application = Application(job_id=job.id, candidate_id=candidate.id)
     db.add(application)
-    await db.commit()
+    await db.flush()
+    db.add(ApplicationStatusHistory(application_id=application.id, stage=application.stage.value,
+                                   candidate_remarks="Your application was received and is awaiting review."))
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="You have already applied for this opening") from exc
     await db.refresh(application)
     try:
         await sync_open_job_profiles(db, job)
@@ -722,12 +735,15 @@ async def upload_candidate_resume(
 async def create_application(
     payload: ApplicationCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(RECRUIT_ROLES)),
+    actor: User = Depends(require_roles(RECRUIT_ROLES)),
 ):
     job = await db.get(JobOpening, payload.job_id)
     candidate = await db.get(Candidate, payload.candidate_id)
     if not job or not candidate:
         raise HTTPException(status_code=404, detail="Job or candidate not found")
+    duplicate = await db.scalar(select(Application.id).where(Application.job_id == job.id, Application.candidate_id == candidate.id))
+    if duplicate is not None:
+        raise HTTPException(status_code=409, detail="Candidate already applied for this opening")
 
     questions = await ensure_job_assessment(db, job)
     answers_by_question = {answer.question_id: answer.answer.strip() for answer in payload.assessment_answers}
@@ -744,7 +760,13 @@ async def create_application(
     )
     application.job, application.candidate = job, candidate
     db.add(application)
-    await db.commit()
+    await db.flush()
+    db.add(ApplicationStatusHistory(application_id=application.id, stage=application.stage.value, changed_by_id=actor.id))
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Candidate already applied for this opening") from exc
     await db.refresh(application)
     await try_grade_application(db, application, job, questions, answers_by_question)
     try:
@@ -844,7 +866,7 @@ async def update_application_stage(
     application_id: int,
     payload: ApplicationStageUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(RECRUIT_ROLES)),
+    actor: User = Depends(require_roles(RECRUIT_ROLES)),
 ):
     application = await db.get(Application, application_id)
     if not application:
@@ -854,6 +876,69 @@ async def update_application_stage(
     if payload.notes is not None:
         application.notes = payload.notes
 
+    db.add(ApplicationStatusHistory(
+        application_id=application.id, stage=payload.stage.value,
+        internal_remarks=payload.notes, candidate_remarks=payload.candidate_remarks,
+        changed_by_id=actor.id, changed_at=datetime.now(timezone.utc),
+    ))
+
     await db.commit()
     await db.refresh(application)
     return application
+
+
+@router.get("/analytics/summary")
+async def recruitment_analytics(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(RECRUIT_ROLES)),
+):
+    result = await db.execute(select(Application.stage, func.count(Application.id)).group_by(Application.stage))
+    counts = {stage.value: count for stage, count in result.all()}
+    total = sum(counts.values())
+    jobs = await db.execute(select(JobOpening.title, func.count(Application.id))
+                            .join(Application, Application.job_id == JobOpening.id)
+                            .group_by(JobOpening.id, JobOpening.title).order_by(func.count(Application.id).desc()))
+    return {"total_applications": total, "by_stage": counts,
+            "shortlisted": counts.get("INTERVIEW", 0), "under_review": counts.get("SCREENING", 0),
+            "offers_released": counts.get("OFFER", 0), "hired": counts.get("HIRED", 0),
+            "rejected": counts.get("REJECTED", 0),
+            "job_applications": [{"job_title": title, "count": count} for title, count in jobs.all()]}
+
+
+@router.get("/applications/{application_id}/interviews")
+async def list_application_interviews(application_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(require_roles(RECRUIT_ROLES))):
+    if not await db.get(Application, application_id):
+        raise HTTPException(status_code=404, detail="Application not found")
+    result = await db.execute(select(InterviewSchedule).where(InterviewSchedule.application_id == application_id).order_by(InterviewSchedule.scheduled_at))
+    return result.scalars().all()
+
+
+@router.post("/applications/{application_id}/interviews", status_code=status.HTTP_201_CREATED)
+async def schedule_application_interview(application_id: int, payload: InterviewScheduleCreate, db: AsyncSession = Depends(get_db), actor: User = Depends(require_roles(RECRUIT_ROLES))):
+    application = await db.get(Application, application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if payload.scheduled_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=422, detail="Interview must be scheduled in the future")
+    if payload.interviewer_id and not await db.get(User, payload.interviewer_id):
+        raise HTTPException(status_code=404, detail="Interviewer not found")
+    interview = InterviewSchedule(application_id=application_id, **payload.model_dump(), created_by_id=actor.id)
+    db.add(interview)
+    await db.commit()
+    await db.refresh(interview)
+    return interview
+
+
+@router.patch("/interviews/{interview_id}")
+async def update_interview_schedule(interview_id: int, payload: InterviewScheduleUpdate, db: AsyncSession = Depends(get_db), _: User = Depends(require_roles(RECRUIT_ROLES))):
+    interview = await db.get(InterviewSchedule, interview_id)
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    values = payload.model_dump(exclude_unset=True)
+    if values.get("scheduled_at") and values["scheduled_at"] <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=422, detail="Interview must be scheduled in the future")
+    for key, value in values.items():
+        setattr(interview, key, value)
+    await db.commit()
+    await db.refresh(interview)
+    return interview

@@ -14,6 +14,7 @@ class RoleEnum(str, enum.Enum):
     HR_MANAGER = "HR_MANAGER"
     MANAGER = "MANAGER"
     EMPLOYEE = "EMPLOYEE"
+    CANDIDATE = "CANDIDATE"
 
 
 class User(Base):

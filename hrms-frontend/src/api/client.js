@@ -54,6 +54,26 @@ export const api = {
   },
   me: () => request("/auth/me"),
   register: (payload) => request("/auth/register", { method: "POST", body: payload }),
+  registerCandidate: (payload) => request("/candidate-portal/register", { method: "POST", body: payload }),
+  candidateProfile: () => request("/candidate-portal/profile"),
+  updateCandidateProfile: (payload) => request("/candidate-portal/profile", { method: "PUT", body: payload }),
+  uploadOwnResume: (file) => { const form = new FormData(); form.append("resume", file); return request("/candidate-portal/resume", { method: "POST", body: form, isForm: true }); },
+  async downloadOwnResume() {
+    const res = await fetch(`${BASE_URL}/candidate-portal/resume`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) throw new Error("Resume file is not available");
+    const blob = await res.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a");
+    link.href = url; link.download = "my-resume"; link.click(); URL.revokeObjectURL(url);
+  },
+  async downloadCandidateResume(candidateId) {
+    const res = await fetch(`${BASE_URL}/candidate-portal/candidates/${candidateId}/resume`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) throw new Error("Resume file is not available");
+    const blob = await res.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a");
+    link.href = url; link.download = `candidate-${candidateId}-resume`; link.click(); URL.revokeObjectURL(url);
+  },
+  candidateApplications: () => request("/candidate-portal/applications"),
+  candidateInterviews: () => request("/candidate-portal/interviews"),
+  candidateApply: (job_id) => request("/candidate-portal/applications", { method: "POST", body: { job_id } }),
+  recruitmentAnalytics: () => request("/recruitment/analytics/summary"),
 
   // ---- Departments ----
   listDepartments: () => request("/departments/"),
@@ -98,6 +118,7 @@ export const api = {
   createApplication: (payload) => request("/recruitment/applications", { method: "POST", body: payload }),
   updateApplicationStage: (id, payload) =>
     request(`/recruitment/applications/${id}/stage`, { method: "PATCH", body: payload }),
+  scheduleInterview: (applicationId, payload) => request(`/recruitment/applications/${applicationId}/interviews`, { method: "POST", body: payload }),
   getInterviewEvaluation: (id) => request(`/interviews/${id}/evaluation`),
 
   // ---- Assistant (RAG) ----

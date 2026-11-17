@@ -50,6 +50,8 @@ docker compose up --build
 The app is available at:
 
 - Frontend: <http://localhost:5174>
+- Candidate portal sign-in and registration: <http://localhost:5174/candidate/access>
+- Candidate dashboard (after sign-in): <http://localhost:5174/candidate>
 - Backend API: <http://localhost:8000>
 - API docs: <http://localhost:8000/docs>
 - PostgreSQL: `localhost:5433`
@@ -108,6 +110,8 @@ Run Alembic commands from `hrms/` with the environment configured:
 ```bash
 alembic upgrade head
 ```
+
+The candidate portal migration adds candidate account links, structured job details, application status history, and interview schedules. Existing HR jobs, candidate records, and applications are retained.
 
 ## Build the frontend
 

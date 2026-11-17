@@ -98,7 +98,7 @@ export default function Careers() {
           <span className="eyebrow">Personnel · Careers</span>
           <h1>{complete ? "Application submitted" : interviewSession ? "Your AI interview" : isAssessment ? "Your assessment" : "Open positions"}</h1>
         </div>
-        <Link to="/login">HRMS sign in</Link>
+          <span><Link to="/candidate/access">Candidate sign in</Link> · <Link to="/login">HR sign in</Link></span>
       </div>
 
       {error && <div className="error-banner">{error}</div>}

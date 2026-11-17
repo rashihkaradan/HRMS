@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.bootstrap import ensure_default_admin
 from app.routers import auth, employees, recruitment, assistant
 from app.routers import interviews
+from app.routers import candidate_portal
 
 
 @asynccontextmanager
@@ -30,6 +31,7 @@ app.include_router(employees.dept_router)
 app.include_router(recruitment.router)
 app.include_router(assistant.router)
 app.include_router(interviews.router)
+app.include_router(candidate_portal.router)
 
 
 @app.get("/health")

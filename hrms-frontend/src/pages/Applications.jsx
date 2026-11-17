@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import Modal from "../components/Modal";
 
-const STAGES = ["APPLIED", "SCREENING", "INTERVIEW", "OFFER", "HIRED", "REJECTED"];
+const STAGES = ["APPLIED", "SCREENING", "RESUME_SHORTLISTED", "HR_SCREENING", "TECHNICAL_INTERVIEW", "MANAGERIAL_INTERVIEW", "FINAL_INTERVIEW", "OFFER", "OFFER_ACCEPTED", "BACKGROUND_VERIFICATION", "HIRED", "ON_HOLD", "OFFER_DECLINED", "WITHDRAWN", "REJECTED"];
 
 export default function Applications() {
   const { canRecruit } = useAuth();
@@ -23,17 +23,23 @@ export default function Applications() {
   const [updatingStages, setUpdatingStages] = useState({});
   const [interviewReview, setInterviewReview] = useState(null);
   const [loadingInterviewReview, setLoadingInterviewReview] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
+  const [candidateRemarks, setCandidateRemarks] = useState({});
+  const [scheduleTarget, setScheduleTarget] = useState(null);
+  const [scheduleForm, setScheduleForm] = useState({ scheduled_at: "", round_name: "Technical interview", mode: "ONLINE", meeting_details: "" });
 
   async function load() {
     try {
-      const [apps, j, c] = await Promise.all([
+      const [apps, j, c, summary] = await Promise.all([
         api.listApplications(),
         api.listJobs(),
         api.listCandidates(),
+        api.recruitmentAnalytics(),
       ]);
       setApplications(apps);
       setJobs(j);
       setCandidates(c);
+      setAnalytics(summary);
     } catch (err) {
       setError(err.message);
     }
@@ -104,13 +110,33 @@ export default function Applications() {
     setApplications((current) => current.map((application) => application.id === id ? { ...application, stage } : application));
     setUpdatingStages((current) => ({ ...current, [id]: true }));
     try {
-      await api.updateApplicationStage(id, { stage });
+      await api.updateApplicationStage(id, { stage, candidate_remarks: candidateRemarks[id] || null });
+      setCandidateRemarks((current) => ({ ...current, [id]: "" }));
     } catch (err) {
       setApplications((current) => current.map((application) => application.id === id ? { ...application, stage: previous } : application));
       setError(err.message);
     } finally {
       setUpdatingStages((current) => ({ ...current, [id]: false }));
     }
+  }
+
+  async function publishCandidateRemark(application) {
+    const candidate_remarks = (candidateRemarks[application.id] || "").trim();
+    if (!candidate_remarks) return;
+    setError("");
+    try {
+      await api.updateApplicationStage(application.id, { stage: application.stage, candidate_remarks });
+      setCandidateRemarks((current) => ({ ...current, [application.id]: "" }));
+    } catch (err) { setError(err.message); }
+  }
+
+  async function submitInterviewSchedule(event) {
+    event.preventDefault();
+    try {
+      await api.scheduleInterview(scheduleTarget.id, { ...scheduleForm, scheduled_at: new Date(scheduleForm.scheduled_at).toISOString() });
+      setScheduleTarget(null);
+      setScheduleForm({ scheduled_at: "", round_name: "Technical interview", mode: "ONLINE", meeting_details: "" });
+    } catch (err) { setError(err.message); }
   }
 
   async function handleCandidateReview() {
@@ -160,6 +186,10 @@ export default function Applications() {
 
       {error && <div className="error-banner">{error}</div>}
 
+      {analytics && <section className="card" style={{ marginBottom: 18 }}><h2 className="section-title">Recruitment snapshot</h2><div className="stat-grid">
+        {[["Applications", analytics.total_applications], ["Under review", analytics.under_review], ["Interviews", analytics.shortlisted], ["Offers", analytics.offers_released], ["Hired", analytics.hired], ["Rejected", analytics.rejected]].map(([label, value]) => <div className="stat-card" key={label}><div className="num">{value}</div><div className="label">{label}</div></div>)}
+      </div></section>}
+
       <section className="card" style={{ marginBottom: 18 }}>
         <h2 className="section-title">AI candidate evidence review</h2>
         <p className="helper-text">Compare each applicant’s assessment marks and job-related evidence with the role requirements. HR makes all hiring decisions.</p>
@@ -208,6 +238,7 @@ export default function Applications() {
                         : "Assessment submitted · scoring unavailable"}
                     </div>}
                     <div className="application-interview">
+                      <button className="btn btn-ghost" type="button" onClick={() => setScheduleTarget({ id: a.id, candidate: candidateName(a.candidate_id), job: jobTitle(a.job_id) })}>Schedule interview</button>
                       {!a.assessment_submitted_at ? <span className="helper-text">Interview starts after the candidate submits the assessment</span>
                         : a.interview_session?.status === "completed" ? <button className="btn btn-ghost" type="button" disabled={loadingInterviewReview} onClick={() => handleReviewInterview(a)}>{loadingInterviewReview ? "Loading review…" : "View interview review"}</button>
                         : <span className="helper-text">Candidate interview {a.interview_session?.status === "in_progress" ? "in progress" : "starting after assessment"}</span>}
@@ -219,6 +250,7 @@ export default function Applications() {
                         </option>
                       ))}
                     </select>
+                    <div className="field" style={{ marginTop: 8 }}><label htmlFor={`candidate-remark-${a.id}`}>Candidate-visible update</label><textarea id={`candidate-remark-${a.id}`} rows={2} maxLength={2000} value={candidateRemarks[a.id] || ""} onChange={(e) => setCandidateRemarks((current) => ({ ...current, [a.id]: e.target.value }))} placeholder="Share a candidate-friendly update" /><button className="btn btn-ghost" type="button" onClick={() => publishCandidateRemark(a)}>Publish update</button></div>
                   </div>
                 ))}
             </div>
@@ -272,6 +304,14 @@ export default function Applications() {
           </form>
         </Modal>
       )}
+
+      {scheduleTarget && <Modal title={`Schedule interview · ${scheduleTarget.candidate}`} onClose={() => setScheduleTarget(null)}><p className="helper-text">{scheduleTarget.job}</p><form onSubmit={submitInterviewSchedule}>
+        <div className="field"><label>Interview date and time</label><input type="datetime-local" required value={scheduleForm.scheduled_at} onChange={e => setScheduleForm({ ...scheduleForm, scheduled_at: e.target.value })} /></div>
+        <div className="field"><label>Interview round</label><select value={scheduleForm.round_name} onChange={e => setScheduleForm({ ...scheduleForm, round_name: e.target.value })}>{["HR screening", "Technical interview", "Managerial interview", "Final interview"].map(round => <option key={round}>{round}</option>)}</select></div>
+        <div className="field"><label>Interview mode</label><select value={scheduleForm.mode} onChange={e => setScheduleForm({ ...scheduleForm, mode: e.target.value })}><option value="ONLINE">Online</option><option value="OFFLINE">Offline</option></select></div>
+        <div className="field"><label>Meeting link or interview location</label><input value={scheduleForm.meeting_details} onChange={e => setScheduleForm({ ...scheduleForm, meeting_details: e.target.value })} /></div>
+        <button className="btn btn-primary" type="submit">Schedule interview</button>
+      </form></Modal>}
 
       {selectedResult && <Modal title={`${selectedResult.name} · ${selectedResult.job} assessment`} onClose={() => setSelectedResult(null)}>
         <h2 className="section-title">{selectedResult.result.total_score}/{selectedResult.result.max_score}</h2>

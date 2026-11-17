@@ -61,6 +61,12 @@ export default function Candidates() {
     }
   }
 
+  async function handleResumeDownload(candidateId) {
+    setError("");
+    try { await api.downloadCandidateResume(candidateId); }
+    catch (err) { setError(err.message); }
+  }
+
   if (!canRecruit) {
     return (
       <div className="card">
@@ -104,7 +110,7 @@ export default function Candidates() {
                   <td>{c.email}</td>
                   <td style={{ color: "var(--ink-soft)" }}>{c.skills || "—"}</td>
                   <td>{c.years_experience != null ? `${c.years_experience} yrs` : "—"}</td>
-                  <td><label className="btn btn-ghost resume-upload-label">{c.resume_path ? "Replace PDF" : "Upload PDF"}<input type="file" accept="application/pdf,.pdf" onChange={(e) => { handleResumeUpload(c.id, e.target.files?.[0]); e.target.value = ""; }} /></label></td>
+                  <td>{c.resume_path?.startsWith("resumes/") && <button className="btn btn-ghost" type="button" onClick={() => handleResumeDownload(c.id)}>Download</button>} <label className="btn btn-ghost resume-upload-label">{c.resume_path ? "Replace PDF" : "Upload PDF"}<input type="file" accept="application/pdf,.pdf" onChange={(e) => { handleResumeUpload(c.id, e.target.files?.[0]); e.target.value = ""; }} /></label></td>
                 </tr>
               ))}
             </tbody>

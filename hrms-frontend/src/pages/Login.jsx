@@ -16,8 +16,8 @@ export default function Login() {
     setError("");
     setSubmitting(true);
     try {
-      await login(email, password);
-      const dest = location.state?.from || "/dashboard";
+      const me = await login(email, password);
+      const dest = location.state?.from || (me.role === "CANDIDATE" ? "/candidate" : "/dashboard");
       navigate(dest, { replace: true });
     } catch (err) {
       setError(err.message);
@@ -31,7 +31,7 @@ export default function Login() {
       <div className="login-card">
         <span className="mark">Personnel</span>
         <span className="sub">Sign in to the HRMS console</span>
-        <p className="helper-text"><a href="/careers">Looking for a job? View open roles and apply</a></p>
+        <p className="helper-text"><a href="/careers">Looking for a job? View open roles</a> · <a href="/candidate/access">Candidate sign in or register</a></p>
 
         {error && <div className="error-banner">{error}</div>}
 

@@ -508,6 +508,16 @@ textarea:focus {
   margin-bottom: 16px;
 }
 
+.success-banner {
+  background: rgba(22, 132, 91, 0.1);
+  border: 1px solid rgba(22, 132, 91, 0.3);
+  color: #16845b;
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
 /* ---------- Kanban (Applications) ---------- */
 
 .kanban {

@@ -12,6 +12,8 @@ import Candidates from "./pages/Candidates";
 import Applications from "./pages/Applications";
 import Assistant from "./pages/Assistant";
 import Careers from "./pages/Careers";
+import CandidateAccess from "./pages/CandidateAccess";
+import CandidateDashboard from "./pages/CandidateDashboard";
 
 // Role groups for route access
 const ALL_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "HR_MANAGER", "RECRUITER", "MANAGER", "EMPLOYEE"];
@@ -36,6 +38,8 @@ function AppRoutes() {
       <Route path="/careers" element={<Careers />} />
       <Route path="/careers/assessment" element={<Careers />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/candidate/access" element={<CandidateAccess />} />
+      <Route path="/candidate" element={<ProtectedRoute allowedRoles={["CANDIDATE"]}><CandidateDashboard /></ProtectedRoute>} />
       <Route
         path="/dashboard"
         element={

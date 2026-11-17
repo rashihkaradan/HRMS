@@ -16,6 +16,13 @@ export default function Jobs() {
     department_id: "",
     description: "",
     required_skills: "",
+    location: "",
+    employment_type: "Full-time",
+    experience_required: "",
+    responsibilities: "",
+    education_requirements: "",
+    vacancies: 1,
+    application_deadline: "",
     interview_duration: 20,
     interview_language: "en-US",
     interview_plan_text: "",
@@ -54,9 +61,16 @@ export default function Jobs() {
         department_id: form.department_id ? Number(form.department_id) : null,
         description: form.description || null,
         required_skills: form.required_skills || null,
+        location: form.location || null,
+        employment_type: form.employment_type || null,
+        experience_required: form.experience_required || null,
+        responsibilities: form.responsibilities || null,
+        education_requirements: form.education_requirements || null,
+        vacancies: Number(form.vacancies) || 1,
+        application_deadline: form.application_deadline || null,
         ...interviewConfig,
       });
-      setForm({ title: "", department_id: "", description: "", required_skills: "", interview_duration: 20, interview_language: "en-US", interview_plan_text: "" });
+      setForm({ title: "", department_id: "", description: "", required_skills: "", location: "", employment_type: "Full-time", experience_required: "", responsibilities: "", education_requirements: "", vacancies: 1, application_deadline: "", interview_duration: 20, interview_language: "en-US", interview_plan_text: "" });
       setShowModal(false);
       setEditingInterviewId(null);
       await load();
@@ -156,6 +170,10 @@ export default function Jobs() {
                 placeholder="Python, FastAPI, PostgreSQL"
               />
             </div>
+            <div className="form-row"><div className="field"><label>Location</label><input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="City or remote" /></div><div className="field"><label>Employment type</label><select value={form.employment_type} onChange={(e) => setForm({ ...form, employment_type: e.target.value })}><option>Full-time</option><option>Part-time</option><option>Contract</option><option>Internship</option></select></div></div>
+            <div className="form-row"><div className="field"><label>Experience required</label><input value={form.experience_required} onChange={(e) => setForm({ ...form, experience_required: e.target.value })} placeholder="e.g. 3+ years" /></div><div className="field"><label>Number of vacancies</label><input type="number" min="1" value={form.vacancies} onChange={(e) => setForm({ ...form, vacancies: e.target.value })} /></div></div>
+            <div className="form-row"><div className="field"><label>Application deadline</label><input type="date" value={form.application_deadline} onChange={(e) => setForm({ ...form, application_deadline: e.target.value })} /></div><div className="field"><label>Education requirements</label><input value={form.education_requirements} onChange={(e) => setForm({ ...form, education_requirements: e.target.value })} /></div></div>
+            <div className="field"><label>Responsibilities</label><textarea rows={3} value={form.responsibilities} onChange={(e) => setForm({ ...form, responsibilities: e.target.value })} /></div>
             <div className="field">
               <label>Description</label>
               <textarea
