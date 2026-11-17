@@ -219,7 +219,7 @@ def grade_assessment(job: JobOpening, questions: list[dict], answers: dict[str, 
 
 async def try_grade_application(db: AsyncSession, application: Application, job: JobOpening, questions: list[dict], answers: dict[str, str]) -> None:
     try:
-        application.assessment_result = grade_assessment(job, questions, answers)
+        application.assessment_result = await asyncio.to_thread(grade_assessment, job, questions, answers)
         await db.commit()
     except (GeminiConfigurationError, GeminiServiceError, ValueError, TypeError, json.JSONDecodeError):
         logger.exception("Assessment saved but Gemini scoring failed for application %s", application.id)

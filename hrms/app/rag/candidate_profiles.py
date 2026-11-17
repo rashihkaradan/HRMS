@@ -1,6 +1,8 @@
 """Index and retrieve role-related applicant evidence in a separate Chroma collection."""
 
+import asyncio
 import hashlib
+import threading
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +13,7 @@ from app.rag.gemini_client import embed_texts, generate_text
 
 CHUNK_SIZE = 1400
 CHUNK_OVERLAP = 180
+_INDEX_LOCK = threading.Lock()
 
 
 def _profile_chunks(application: Application, candidate: Candidate, job: JobOpening) -> list[tuple[str, str]]:
@@ -53,29 +56,49 @@ async def sync_open_job_profiles(db: AsyncSession, job: JobOpening) -> int:
         .where(Application.job_id == job.id, Application.stage != ApplicationStage.REJECTED)
         .order_by(Application.id)
     )
-    collection = get_candidate_collection()
-    profiles = result.all()
-    pending: list[tuple[str, str, dict]] = []
-    profile_app_ids = {application.id for application, _ in profiles}
+    profiles = []
+    for application, candidate in result.all():
+        profiles.append({
+            "application_id": application.id,
+            "candidate_id": candidate.id,
+            "candidate_name": candidate.full_name,
+            "chunks": _profile_chunks(application, candidate, job),
+        })
+    return await asyncio.to_thread(_index_open_job_profiles, job.id, job.title, profiles)
 
-    for application, candidate in profiles:
-        chunks = _profile_chunks(application, candidate, job)
-        ids = [f"application-{application.id}-chunk-{i}" for i in range(len(chunks))]
-        existing = collection.get(where={"application_id": application.id}, include=["metadatas"])
+
+def _index_open_job_profiles(job_id: int, job_title: str, profiles: list[dict]) -> int:
+    """Run Chroma and embedding SDK calls away from FastAPI's event loop."""
+    with _INDEX_LOCK:
+        return _index_open_job_profiles_locked(job_id, job_title, profiles)
+
+
+def _index_open_job_profiles_locked(job_id: int, job_title: str, profiles: list[dict]) -> int:
+    collection = get_candidate_collection()
+    pending: list[tuple[str, str, dict]] = []
+    profile_app_ids = {profile["application_id"] for profile in profiles}
+
+    for profile in profiles:
+        application_id = profile["application_id"]
+        candidate_id = profile["candidate_id"]
+        candidate_name = profile["candidate_name"]
+        chunks = profile["chunks"]
+        ids = [f"application-{application_id}-chunk-{i}" for i in range(len(chunks))]
+        existing = collection.get(where={"application_id": application_id}, include=["metadatas"])
         existing_by_id = {
             record_id: metadata
             for record_id, metadata in zip(existing.get("ids", []), existing.get("metadatas", []))
         }
         for index, (record_id, (evidence_type, document)) in enumerate(zip(ids, chunks)):
             fingerprint = hashlib.sha256(
-                f"{document}\n{candidate.full_name}\n{job.title}\n{evidence_type}".encode("utf-8")
+                f"{document}\n{candidate_name}\n{job_title}\n{evidence_type}".encode("utf-8")
             ).hexdigest()
             metadata = {
-                "application_id": application.id,
-                "candidate_id": candidate.id,
-                "candidate_name": candidate.full_name,
-                "job_id": job.id,
-                "job_title": job.title,
+                "application_id": application_id,
+                "candidate_id": candidate_id,
+                "candidate_name": candidate_name,
+                "job_id": job_id,
+                "job_title": job_title,
                 "chunk_index": index,
                 "evidence_type": evidence_type,
                 "content_hash": fingerprint,
@@ -87,7 +110,7 @@ async def sync_open_job_profiles(db: AsyncSession, job: JobOpening) -> int:
             collection.delete(ids=obsolete)
 
     # Remove Chroma entries for applications that no longer belong to this role.
-    all_role_docs = collection.get(where={"job_id": job.id}, include=["metadatas"])
+    all_role_docs = collection.get(where={"job_id": job_id}, include=["metadatas"])
     stale_ids = [
         record_id
         for record_id, metadata in zip(all_role_docs.get("ids", []), all_role_docs.get("metadatas", []))
