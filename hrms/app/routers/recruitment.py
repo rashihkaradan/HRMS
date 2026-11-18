@@ -612,7 +612,7 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
     try:
-        job.assessment_questions = generate_job_assessment(job)
+        job.assessment_questions = await asyncio.to_thread(generate_job_assessment, job)
     except (GeminiConfigurationError, GeminiServiceError, ValueError, TypeError, json.JSONDecodeError):
         logger.exception("Using skill-based assessment fallback for job %s", job.id)
         job.assessment_questions = fallback_job_assessment(job)

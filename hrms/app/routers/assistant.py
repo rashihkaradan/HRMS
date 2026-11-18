@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import tempfile
 import re
@@ -39,7 +40,7 @@ async def search_applicants(
         raise HTTPException(status_code=404, detail="Open job not found")
     try:
         indexed_count = await sync_open_job_profiles(db, job)
-        evidence = search_candidate_profiles(job, payload.question.strip())
+        evidence = await asyncio.to_thread(search_candidate_profiles, job, payload.question.strip())
         if not evidence:
             return {
                 "job_id": job.id,
@@ -48,7 +49,7 @@ async def search_applicants(
                 "candidates": [],
                 "answer": "No applicants are recorded for this open role yet.",
             }
-        answer = answer_candidate_search(job, payload.question.strip(), evidence)
+        answer = await asyncio.to_thread(answer_candidate_search, job, payload.question.strip(), evidence)
     except GeminiConfigurationError:
         raise HTTPException(status_code=503, detail="Candidate search needs a valid GEMINI_API_KEY")
     except GeminiServiceError as exc:
@@ -96,7 +97,7 @@ async def ask(
     this does NOT query employee-specific data like leave balances.
     """
     try:
-        result = answer_policy_question(payload.question)
+        result = await asyncio.to_thread(answer_policy_question, payload.question)
     except GeminiConfigurationError:
         raise HTTPException(
             status_code=503,
@@ -138,7 +139,8 @@ async def upload_policy_document(
     saved_path = documents_dir / f"{uuid.uuid4().hex}_{safe_name}"
     upload_succeeded = False
     try:
-        chunk_count = ingest_document(
+        chunk_count = await asyncio.to_thread(
+            ingest_document,
             tmp_path,
             doc_title=title,
             category=category,
